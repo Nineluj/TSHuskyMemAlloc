@@ -1,11 +1,3 @@
-// CS3650 CH02 starter code
-// Fall 2017
-//
-// Author: Nat Tuck
-// Once you've read this, you're done
-// with HW07.
-
-
 #include <stdint.h>
 #include <sys/mman.h>
 #include <assert.h>
@@ -21,6 +13,7 @@ typedef struct nu_free_cell {
     struct nu_free_cell* prev;
 } nu_free_cell;
 
+//structure to represent a bin
 typedef struct nu_bin {
     size_t bin_size;
     nu_free_cell* head;
@@ -33,9 +26,14 @@ static const int NUM_BINS = 7;
 static long nu_malloc_chunks = 0;
 static long nu_free_chunks = 0;
 
-__thread static nu_bin bins[NUM_BINS];
-bool bins_init = false;
+//global bins to store data
+static nu_bin bins[NUM_BINS];
 
+//flag to determine if we need to initialize the bins 
+int bins_init = 0;
+
+
+//TODO: remove this?
 int64_t
 nu_free_list_length(nu_free_cell* nu_free_list)
 {
@@ -48,6 +46,7 @@ nu_free_list_length(nu_free_cell* nu_free_list)
     return len;
 }
 
+//TODO: remove this?
 void
 nu_print_free_list(nu_free_cell* nu_free_list)
 {
@@ -60,28 +59,25 @@ nu_print_free_list(nu_free_cell* nu_free_list)
     }
 }
 
+//insert the given cell into the bin at given index
 static
 void
-nu_free_list_insert(nu_free_cell* nu_free_list, nu_free_cell* cell)
+nu_bin_insert(int index, nu_free_cell* cell)
 {
-    if (nu_free_list == 0 || ((uint64_t) nu_free_list) > ((uint64_t) cell)) {
-        cell->next = nu_free_list;
+    nu_free_cell* head = bin[index].head
+    if(head == NULL) {
+        head = cell;
+    }
+    else {
+        //push the item to the beginning of the free_list by moving everything forward by 1 element
+        head->prev = cell;
         cell->prev = NULL;
-        nu_free_list = cell;
-        return;
+        cell->next = head;
+        head = cell;
     }
-
-    nu_free_cell* pp = nu_free_list;
-
-    while (pp->next != 0 && ((uint64_t)pp->next) < ((uint64_t) cell)) {
-        pp = pp->next;
-    }
-
-    cell->next = pp->next;
-    cell->prev = pp;
-    pp->next = cell;
 }
 
+//TODO: not sure if this is needed
 static
 nu_free_cell*
 free_list_get_cell(int64_t size)
@@ -98,6 +94,7 @@ free_list_get_cell(int64_t size)
     return 0;
 }
 
+//mmaps a cell of CHUNK_SIZE and returns it.  Used in the bin initialization
 static
 nu_free_cell*
 make_cell()
@@ -108,40 +105,66 @@ make_cell()
     return cell;
 }
 
-void initialize_bins() {
-    int i;
-    for(i = 0; i < NUM_BINS; i++) {
-           bins[i].size = 1 << i+5;
-           bins[i].head = NULL;
-    }
-
-    
+//mmap more data to our largest bin
+void add_more_big_space() {
     for(int j = 0; j < 100; j++) {
         nu_free_cell cell = make_cell();
-        nu_free_list_insert(bins[NUM_BINS].head, &cell);
+        nu_bin_insert(bins[NUM_BINS], &cell);
     }
 }
 
+//function to initialize the bins, by setting all low bins to null and inserting a lot of mapped memory into the largest bin
+void initialize_bins() {
+    int i;
+    //initialize the sizes of the bins and set content to null
+    for(i = 0; i < NUM_BINS; i++) {
+           bins[i].size = 1 << i+5;  //i+5 is starting from 2^5 (32)
+           bins[i].head = NULL;
+    }
+
+    //insert mmapped blocks into the 2048 size bin
+    add_more_big_space();
+
+    bins_init = 1;
+}
+
+//routine to find a block inside the given bin index.  It calls itself recursively, breaking down large bins as needed
+//and the alloc_size should remain unchanged across recursive calls
 void* ofind_data(int index, int64_t alloc_size) {
+    if(index >= NUM_BINS) {
+        add_more_big_space();
+        return ofind_data(NUM_BINS-1, alloc_size);
+    }
+
+    //if the current bin is empty
     if(bin[index].head == NULL) {
-        return ofind_data(index+1, alloc_size; 
+        return ofind_data(index+1, alloc_size); 
     }
     else {
         if(bin[index].size == alloc_size) {
             return nu_remove_head(bin[index].head);
         }
         else {
-            void* cur_data = nu_remove_head(bin[index].head);
+            //remove current block to be split
+            nu_free_cell* cur_data = nu_remove_head(bin[index].head);
             int64_t new_size = bin[index - 1].size;
-
+            //set new size to lower bin size
+            cur_data->size = new_size;
+            //insert first half into the smaller bin
+            nu_bin_insert(bin[index - 1], cur_data);
+            //move pointer for second half
+            nu_free_cell* data2 = (void*)cur_data + new_size;
+            //set new size
+            data2->size = new_size;
+            //insert into bin of smaller size
+            nu_bin_insert(bin[index - 1], data2);
+            //recursively call on the smaller size bin
+            return ofind_data(index - 1, alloc_size);
         }
     }
-    //find the correct bin
-    //take it from the start of bin if the head is not null
-    //if the head is null, look one bin forward
-    //if you find a larger bin, keep splitting in half until you are at the correct power of 2 to give to the user
 }
 
+//optimal malloc function
 void*
 omalloc(size_t usize)
 {
@@ -168,13 +191,16 @@ omalloc(size_t usize)
     }
 
     void* cell;
-
-    for(int i = 0; i < 0; i++) {
+    
+    //go through all bins to find the bin index that is just large enough for the requested size
+    for(int i = 0; i < NUM_BINS; i++) {
         if(bin[i].size >= alloc_size) {
            cell = ofind_data(i, bin[i].size);
+           break;
         }
     }
-
+    
+    //set the size of the cell
     *((int64_t*)cell) = alloc_size;
     return ((void*)cell) + sizeof(int64_t);
 }
@@ -182,21 +208,26 @@ omalloc(size_t usize)
 void
 ofree(void* addr) 
 {
+    //get size of given address
     nu_free_cell* cell = (nu_free_cell*)(addr - sizeof(int64_t));
     int64_t size = *((int64_t*) cell);
 
+    //if given size is larger than our largest bin, unmap it
     if (size > CHUNK_SIZE) {
         nu_free_chunks += 1;
         munmap((void*) cell, size);
     }
     else {
-        cell->size = size;
-        //insert the block of memory into the correct bin based on the size
-        //nu_free_list_insert(cell);
+        //go through all of the bins and insert the data into the correct bin
+        for(int i = 0; i < NUM_BINS; i++) {
+            if(bin[i].size == alloc_size) {
+                nu_bin_insert(i, cell);
+                break;
+            }
+        }
     }
 
-    nu_bin_coalesce();
-    
+    //nu_bin_coalesce();    
 }
 
 void* 
