@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include "xmalloc.h"
-
+#include "omem.h"
 
 void*
 xmalloc(size_t bytes)
