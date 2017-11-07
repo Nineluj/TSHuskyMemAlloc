@@ -1,3 +1,9 @@
+/*
+ *  Basically what was wrongi was that before each call to insert, we were not setting the cell's previous and next field to null.
+ *  This meant that when we inserted, we were still getting some of the previous and next from the last place it was in during a split.
+ *  I also did something similar in the free function to set the previous and next to null before I inserted it back into the bin.  
+ * 
+ */
 #include <stdint.h>
 #include <sys/mman.h>
 #include <assert.h>
@@ -65,8 +71,8 @@ static
 void
 nu_bin_insert(int index, nu_free_cell* cell)
 {
-    printf("inserting cell of size: %ld into bin %d\n", cell->size, index);
     nu_free_cell* head = bins[index].head;
+    
     //printf("insert current head: %ld\n", head);
     //printf("to insert address: %ld\n", cell);
     if(head == NULL) {
@@ -118,16 +124,15 @@ nu_free_cell* nu_remove_head(int bin_index) {
     if (bins[bin_index].head != NULL) {
         bins[bin_index].head = bins[bin_index].head->next;
     }
-    //if(bins[bin_index].head != NULL) {
-    //    bins[bin_index].head->prev = NULL;
-    //}
+    if(bins[bin_index].head != NULL) {
+        bins[bin_index].head->prev = NULL;
+    }
     return ret_val;
 }
 
 //mmap more data to our largest bin
 void add_more_big_space() {
-    printf("adding more space\n");
-    for(int j = 0; j < 1000; j++) {
+    for(int j = 0; j < 10; j++) {
         nu_free_cell* cell = make_cell();
         cell->size = 2048;
         nu_bin_insert(NUM_BINS - 1, cell);
@@ -154,10 +159,7 @@ void initialize_bins() {
 //routine to find a block inside the given bin index.  It calls itself recursively, breaking down large bins as needed
 //and the alloc_size should remain unchanged across recursive calls
 void* ofind_data(int index, int64_t alloc_size) {
-    //printf("find data index: %d\n", index);
-    //printf("allocation size: %d\n", alloc_size);
     if(index >= NUM_BINS) {
-        printf("need to add more space\n");
         add_more_big_space();
         return ofind_data(NUM_BINS-1, alloc_size);
     }
@@ -168,7 +170,6 @@ void* ofind_data(int index, int64_t alloc_size) {
     }
     else {
         if(bins[index].bin_size == alloc_size) {
-            printf("found correct bin\n");
             return nu_remove_head(index);
         }
         else {
@@ -177,12 +178,18 @@ void* ofind_data(int index, int64_t alloc_size) {
             int64_t new_size = bins[index - 1].bin_size;
             //set new size to lower bin size
             cur_data->size = new_size;
+            //set the prev and next to null
+            cur_data->prev = NULL;
+            cur_data->next = NULL;
             //insert first half into the smaller bin
             nu_bin_insert(index - 1, cur_data);
             //move pointer for second half
             nu_free_cell* data2 = (void*)cur_data + new_size;
             //set new size
             data2->size = new_size;
+            //set the prev and next to null
+            data2->prev = NULL;
+            data2->next = NULL;
             //insert into bin of smaller size
             nu_bin_insert(index - 1, data2);
             //recursively call on the smaller size bin
@@ -199,7 +206,6 @@ omalloc(size_t usize)
     if (!bins_init) {
         initialize_bins();
     }
-    printf("malloc for size: %ld\n", usize);
 
     int64_t size = (int64_t) usize;
 
@@ -213,11 +219,9 @@ omalloc(size_t usize)
 
     // TODO: Handle large allocations.
     if (alloc_size > CHUNK_SIZE) {
-        printf("large malloc detected\n");
         void* addr = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         *((int64_t*)addr) = alloc_size;
         nu_malloc_chunks += 1;
-        printf("returning\n");
 
         pthread_mutex_unlock(&mutex);
         return addr + sizeof(int64_t);
@@ -233,8 +237,6 @@ omalloc(size_t usize)
         }
     }
 
-    printf("here\n");
-
     //set the size of the cell
     *((int64_t*)cell) = alloc_size;
     pthread_mutex_unlock(&mutex);
@@ -244,11 +246,13 @@ omalloc(size_t usize)
 void
 ofree(void* addr)
 {
-    printf("beginning of free\n");
     pthread_mutex_lock(&mutex);
     //get size of given address
     nu_free_cell* cell = (nu_free_cell*)(addr - sizeof(int64_t));
     int64_t size = *((int64_t*) cell);
+    cell->size = size;
+    cell->prev = NULL;
+    cell->next = NULL;
 
     //if given size is larger than our largest bin, unmap it
     if (size > CHUNK_SIZE) {
@@ -265,9 +269,7 @@ ofree(void* addr)
         }
     }
 
-    printf("end of free\n");
     pthread_mutex_unlock(&mutex);
-
     //nu_bin_coalesce();
 }
 
