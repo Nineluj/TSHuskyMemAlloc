@@ -20,8 +20,8 @@ typedef struct nu_bin {
 } nu_bin;
 
 static const int64_t CHUNK_SIZE = 2048;
-static const int64_t CELL_SIZE  = (int64_t)sizeof(nu_free_cell);
-static const int NUM_BINS = 7;
+static const int64_t CELL_SIZE  = 32; //(int64_t)sizeof(nu_free_cell);
+#define NUM_BINS 7
 static long nu_malloc_chunks = 0;
 static long nu_free_chunks = 0;
 
@@ -30,7 +30,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 //global bins to store data
 static nu_bin bins[NUM_BINS];
 
-//flag to determine if we need to initialize the bins 
+//flag to determine if we need to initialize the bins
 int bins_init = 0;
 
 /*
@@ -55,7 +55,7 @@ nu_print_free_list(nu_free_cell* nu_free_list)
     printf("= Free list: =\n");
 
     for (; pp != 0; pp = pp->next) {
-        printf("%lx: (cell %ld %lx)\n", (int64_t) pp, pp->size, (int64_t) pp->next); 
+        printf("%lx: (cell %ld %lx)\n", (int64_t) pp, pp->size, (int64_t) pp->next);
 
     }
 }*/
@@ -102,7 +102,7 @@ nu_free_cell*
 make_cell()
 {
     void* addr = mmap(0, CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    nu_free_cell* cell = (nu_free_cell*) addr; 
+    nu_free_cell* cell = (nu_free_cell*) addr;
     cell->size = CHUNK_SIZE;
     return cell;
 }
@@ -147,7 +147,7 @@ void* ofind_data(int index, int64_t alloc_size) {
 
     //if the current bin is empty
     if(bins[index].head == NULL) {
-        return ofind_data(index+1, alloc_size); 
+        return ofind_data(index+1, alloc_size);
     }
     else {
         if(bins[index].bin_size == alloc_size) {
@@ -178,9 +178,12 @@ void*
 omalloc(size_t usize)
 {
     pthread_mutex_lock(&mutex);
-    if(!bins_init) {
+    if (!bins_init) {
+        printf("Initing\n");
         initialize_bins();
     }
+
+    printf("got here");
 
     int64_t size = (int64_t) usize;
 
@@ -201,7 +204,7 @@ omalloc(size_t usize)
     }
 
     void* cell;
-    
+
     //go through all bins to find the bin index that is just large enough for the requested size
     for(int i = 0; i < NUM_BINS; i++) {
         if(bins[i].bin_size >= alloc_size) {
@@ -209,7 +212,7 @@ omalloc(size_t usize)
            break;
         }
     }
-    
+
     //set the size of the cell
     *((int64_t*)cell) = alloc_size;
     return ((void*)cell) + sizeof(int64_t);
@@ -217,7 +220,7 @@ omalloc(size_t usize)
 }
 
 void
-ofree(void* addr) 
+ofree(void* addr)
 {
     pthread_mutex_lock(&mutex);
     //get size of given address
@@ -240,11 +243,11 @@ ofree(void* addr)
     }
 
     pthread_mutex_unlock(&mutex);
-    //nu_bin_coalesce();    
+    //nu_bin_coalesce();
 }
 
-void* 
-orealloc(void* addr, size_t size) 
+void*
+orealloc(void* addr, size_t size)
 {
     void* new_addr = omalloc(size);
     memcpy(new_addr, addr, size);

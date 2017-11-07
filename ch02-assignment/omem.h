@@ -12,8 +12,8 @@ typedef struct om_stats {
     long free_length;
 } om_stats;
 
-om_stats* ogetstats();
-void oprintstats();
+//om_stats* ogetstats();
+//void oprintstats();
 
 void* omalloc(size_t size);
 void ofree(void* item);
