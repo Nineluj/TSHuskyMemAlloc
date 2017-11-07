@@ -118,7 +118,7 @@ nu_free_cell* nu_remove_head(int bin_index) {
 void add_more_big_space() {
     for(int j = 0; j < 100; j++) {
         nu_free_cell* cell = make_cell();
-        nu_bin_insert(NUM_BINS, cell);
+        nu_bin_insert(NUM_BINS - 1, cell);
     }
 }
 
@@ -133,14 +133,16 @@ void initialize_bins() {
 
     //insert mmapped blocks into the 2048 size bin
     add_more_big_space();
-
     bins_init = 1;
 }
 
 //routine to find a block inside the given bin index.  It calls itself recursively, breaking down large bins as needed
 //and the alloc_size should remain unchanged across recursive calls
 void* ofind_data(int index, int64_t alloc_size) {
+    printf("find data index: %d\n", index);
+    printf("allocation size: %d\n", alloc_size);
     if(index >= NUM_BINS) {
+        printf("need to add more space\n");
         add_more_big_space();
         return ofind_data(NUM_BINS-1, alloc_size);
     }
@@ -151,6 +153,7 @@ void* ofind_data(int index, int64_t alloc_size) {
     }
     else {
         if(bins[index].bin_size == alloc_size) {
+            printf("found correct bin\n");
             return nu_remove_head(index);
         }
         else {
@@ -179,11 +182,8 @@ omalloc(size_t usize)
 {
     pthread_mutex_lock(&mutex);
     if (!bins_init) {
-        printf("Initing\n");
         initialize_bins();
     }
-
-    printf("got here");
 
     int64_t size = (int64_t) usize;
 
@@ -213,10 +213,12 @@ omalloc(size_t usize)
         }
     }
 
+    printf("here\n");
+
     //set the size of the cell
     *((int64_t*)cell) = alloc_size;
-    return ((void*)cell) + sizeof(int64_t);
     pthread_mutex_unlock(&mutex);
+    return ((void*)cell) + sizeof(int64_t);
 }
 
 void
