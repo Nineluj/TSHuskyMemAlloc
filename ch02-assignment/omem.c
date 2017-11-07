@@ -65,7 +65,10 @@ static
 void
 nu_bin_insert(int index, nu_free_cell* cell)
 {
+    printf("inserting cell of size: %ld into bin %d\n", cell->size, index);
     nu_free_cell* head = bins[index].head;
+    //printf("insert current head: %ld\n", head);
+    //printf("to insert address: %ld\n", cell);
     if(head == NULL) {
         bins[index].head = cell;
     }
@@ -74,8 +77,10 @@ nu_bin_insert(int index, nu_free_cell* cell)
         head->prev = cell;
         cell->prev = NULL;
         cell->next = head;
-        *head = *cell;
+        bins[index].head = cell;
     }
+    //printf("final head: %ld\n", bins[index].head);
+    //printf("final head next: %ld\n", bins[index].head->next);
 }
 
 //TODO: not sure if this is needed
@@ -109,15 +114,25 @@ make_cell()
 
 nu_free_cell* nu_remove_head(int bin_index) {
     nu_free_cell* ret_val = bins[bin_index].head;
-    bins[bin_index].head = bins[bin_index].head->next;
-    bins[bin_index].head->prev = NULL;
+
+    if (bins[bin_index].head != NULL) {
+        bins[bin_index].head = bins[bin_index].head->next;
+    }
+    //if(bins[bin_index].head != NULL) {
+    //    bins[bin_index].head->prev = NULL;
+    //}
     return ret_val;
 }
 
 //mmap more data to our largest bin
 void add_more_big_space() {
-    for(int j = 0; j < 100; j++) {
+    printf("adding more space\n");
+    for(int j = 0; j < 1000; j++) {
         nu_free_cell* cell = make_cell();
+        cell->size = 2048;
+        nu_bin_insert(NUM_BINS - 1, cell);
+        cell = (void*)cell + 2048;
+        cell->size = 2048;
         nu_bin_insert(NUM_BINS - 1, cell);
     }
 }
@@ -139,8 +154,8 @@ void initialize_bins() {
 //routine to find a block inside the given bin index.  It calls itself recursively, breaking down large bins as needed
 //and the alloc_size should remain unchanged across recursive calls
 void* ofind_data(int index, int64_t alloc_size) {
-    printf("find data index: %d\n", index);
-    printf("allocation size: %d\n", alloc_size);
+    //printf("find data index: %d\n", index);
+    //printf("allocation size: %d\n", alloc_size);
     if(index >= NUM_BINS) {
         printf("need to add more space\n");
         add_more_big_space();
@@ -184,6 +199,7 @@ omalloc(size_t usize)
     if (!bins_init) {
         initialize_bins();
     }
+    printf("malloc for size: %ld\n", usize);
 
     int64_t size = (int64_t) usize;
 
@@ -197,9 +213,13 @@ omalloc(size_t usize)
 
     // TODO: Handle large allocations.
     if (alloc_size > CHUNK_SIZE) {
+        printf("large malloc detected\n");
         void* addr = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         *((int64_t*)addr) = alloc_size;
         nu_malloc_chunks += 1;
+        printf("returning\n");
+
+        pthread_mutex_unlock(&mutex);
         return addr + sizeof(int64_t);
     }
 
@@ -224,6 +244,7 @@ omalloc(size_t usize)
 void
 ofree(void* addr)
 {
+    printf("beginning of free\n");
     pthread_mutex_lock(&mutex);
     //get size of given address
     nu_free_cell* cell = (nu_free_cell*)(addr - sizeof(int64_t));
@@ -244,7 +265,9 @@ ofree(void* addr)
         }
     }
 
+    printf("end of free\n");
     pthread_mutex_unlock(&mutex);
+
     //nu_bin_coalesce();
 }
 
