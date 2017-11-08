@@ -75,57 +75,27 @@ nu_bin_insert(int index, nu_free_cell* cell)
     
     //printf("insert current head: %ld\n", head);
     //printf("to insert address: %ld\n", cell);
-    if(head == NULL) {
+    if(head == NULL || head > cell) {
+        cell->prev = NULL;
+        cell->next = NULL;
         bins[index].head = cell;
+        return;
     }
     else {
         nu_free_cell* current = head;
-        for(;current!=NULL; current = current->next) {
+        for(;current->next!=NULL; current = current->next) {
             if(cell < current) {
-                if(current == head) {
-                    cell->next = head;
-                    cell->prev = NULL;
-                    head->prev = cell;
-                    bins[index].head = cell;
-                }
-                else {
-                    cell->prev = current->prev;
-                    cell->next = current;
-                    current->prev->next = cell;
-                    current->prev = cell;
-                }
+                cell->prev = current->prev;
+                cell->next = current;
+                current->prev->next = cell;
+                current->prev = cell;
+                return;
             }
         }
-    }
-}
-
-void nu_bin_coalesce(int index, nu_free_cell* to_coalesce) {
-    int64_t size = to_coalesce->size;
-    nu_free_cell* next = to_coalesce->next;
-    nu_free_cell* prev = to_coalesce->prev;
-    nu_free_cell* new_block;
-    //check the next cell
-    if(next != NULL) {
-        if((void*)to_coalesce + size == next) {
-            new_block = to_coalesce;
-            new_block->size = size << 1;
-            new_block->next = NULL;
-            new_block->prev = NULL;
-            nu_remove(to_coalesce);
-            nu_remove(next);
-            nu_bin_insert(index+1, new_block);
-        }
-    }
-    if(prev != NULL) {
-        if((void*)to_coalesce - size == prev) {
-            new_block = prev;
-            new_block->size = size << 1;
-            new_block->next = NULL;
-            new_block->prev = NULL;
-            nu_remove(to_coalesce);
-            nu_remove(prev);
-            nu_bin_insert(index+1, new_block);
-        }
+        //set cell to be after current because the current is the last element in the free list
+        cell->prev = current;
+        cell->next= NULL;
+        current->next = cell;
     }
 }
 
@@ -139,6 +109,42 @@ void nu_remove(nu_free_cell* to_remove) {
         next->prev = prev;
     }
 }
+
+void nu_bin_coalesce(int index, nu_free_cell* to_coalesce) {
+    int64_t size = to_coalesce->size;
+    nu_free_cell* next = to_coalesce->next;
+    nu_free_cell* prev = to_coalesce->prev;
+    nu_free_cell* new_block;
+    //check the next cell
+    if(index < NUM_BINS-1) {
+        if(next != NULL) {
+            if((void*)to_coalesce + size == next) {
+                nu_remove(to_coalesce);
+                nu_remove(next);
+                new_block = to_coalesce;
+                new_block->size = size << 1;
+                new_block->next = NULL;
+                new_block->prev = NULL;
+                nu_bin_insert(index+1, new_block);
+                nu_bin_coalesce(index+1, new_block);
+                return;
+            }
+        }
+        if(prev != NULL) {
+            if((void*)to_coalesce - size == prev) {
+                nu_remove(to_coalesce);
+                nu_remove(prev);
+                new_block = prev;
+                new_block->size = size << 1;
+                new_block->next = NULL;
+                new_block->prev = NULL;
+                nu_bin_insert(index+1, new_block);
+                nu_bin_coalesce(index+1, new_block);
+            }
+        }
+    }
+}
+
 
 //TODO: not sure if this is needed
 //static
@@ -171,13 +177,17 @@ make_cell()
 
 nu_free_cell* nu_remove_head(int bin_index) {
     nu_free_cell* ret_val = bins[bin_index].head;
+    //TODO: remove this print
+    if(ret_val == NULL) {
+        printf("TRYING TO REMOVE HEAD FROM EMPTY LIST\n");
+    }
 
-    if (bins[bin_index].head != NULL) {
-        bins[bin_index].head = bins[bin_index].head->next;
+    nu_free_cell* new_head = ret_val->next;
+    if(new_head != NULL) {
+        new_head->prev = NULL;
     }
-    if(bins[bin_index].head != NULL) {
-        bins[bin_index].head->prev = NULL;
-    }
+    bins[bin_index].head = new_head;
+    
     return ret_val;
 }
 
@@ -321,8 +331,9 @@ ofree(void* addr)
             }
         }
     }
-    
+    //printf("before coalesce\n");
     nu_bin_coalesce(index, cell);
+    //printf("after coalesce\n");
     pthread_mutex_unlock(&mutex);
 }
 
