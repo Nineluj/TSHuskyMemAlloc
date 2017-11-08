@@ -79,14 +79,65 @@ nu_bin_insert(int index, nu_free_cell* cell)
         bins[index].head = cell;
     }
     else {
-        //push the item to the beginning of the free_list by moving everything forward by 1 element
-        head->prev = cell;
-        cell->prev = NULL;
-        cell->next = head;
-        bins[index].head = cell;
+        nu_free_cell* current = head;
+        for(;current!=NULL; current = current->next) {
+            if(cell < current) {
+                if(current == head) {
+                    cell->next = head;
+                    cell->prev = NULL;
+                    head->prev = cell;
+                    bins[index].head = cell;
+                }
+                else {
+                    cell->prev = current->prev;
+                    cell->next = current;
+                    current->prev->next = cell;
+                    current->prev = cell;
+                }
+            }
+        }
     }
-    //printf("final head: %ld\n", bins[index].head);
-    //printf("final head next: %ld\n", bins[index].head->next);
+}
+
+void nu_bin_coalesce(int index, nu_free_cell* to_coalesce) {
+    int64_t size = to_coalesce->size;
+    nu_free_cell* next = to_coalesce->next;
+    nu_free_cell* prev = to_coalesce->prev;
+    nu_free_cell* new_block;
+    //check the next cell
+    if(next != NULL) {
+        if((void*)to_coalesce + size == next) {
+            new_block = to_coalesce;
+            new_block->size = size << 1;
+            new_block->next = NULL;
+            new_block->prev = NULL;
+            nu_remove(to_coalesce);
+            nu_remove(next);
+            nu_bin_insert(index+1, new_block);
+        }
+    }
+    if(prev != NULL) {
+        if((void*)to_coalesce - size == prev) {
+            new_block = prev;
+            new_block->size = size << 1;
+            new_block->next = NULL;
+            new_block->prev = NULL;
+            nu_remove(to_coalesce);
+            nu_remove(prev);
+            nu_bin_insert(index+1, new_block);
+        }
+    }
+}
+
+void nu_remove(nu_free_cell* to_remove) {
+    nu_free_cell* prev = to_remove->prev;
+    nu_free_cell* next = to_remove->next;
+    if(prev != NULL) {
+        prev->next = next;
+    }
+    if(next != NULL) {
+        next->prev = prev;
+    }
 }
 
 //TODO: not sure if this is needed
@@ -250,6 +301,7 @@ ofree(void* addr)
     //get size of given address
     nu_free_cell* cell = (nu_free_cell*)(addr - sizeof(int64_t));
     int64_t size = *((int64_t*) cell);
+    int index;
     cell->size = size;
     cell->prev = NULL;
     cell->next = NULL;
@@ -263,14 +315,15 @@ ofree(void* addr)
         //go through all of the bins and insert the data into the correct bin
         for(int i = 0; i < NUM_BINS; i++) {
             if(bins[i].bin_size == size) {
-                nu_bin_insert(i, cell);
+                index = i;
+                nu_bin_insert(index, cell);
                 break;
             }
         }
     }
-
+    
+    nu_bin_coalesce(index, cell);
     pthread_mutex_unlock(&mutex);
-    //nu_bin_coalesce();
 }
 
 void*
