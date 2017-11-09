@@ -69,15 +69,10 @@ nu_print_free_list(nu_free_cell* nu_free_list)
 //insert the given cell into the bin at given index
 static
 void
-nu_bin_insert(int index, nu_free_cell* cell)
-{
+nu_bin_insert(int index, nu_free_cell* cell) {  
     nu_free_cell* head = bins[index].head;
     
-    //printf("insert current head: %ld\n", head);
-    //printf("to insert address: %ld\n", cell);
     if(head == NULL || head > cell) {
-        cell->prev = NULL;
-        cell->next = NULL;
         bins[index].head = cell;
         return;
     }
@@ -118,9 +113,9 @@ void nu_bin_coalesce(int index, nu_free_cell* to_coalesce) {
     //check the next cell
     if(index < NUM_BINS-1) {
         if(next != NULL) {
-            if((void*)to_coalesce + size == next) {
-                nu_remove(to_coalesce);
+            if((int64_t)to_coalesce + size == (int64_t)next) {
                 nu_remove(next);
+                nu_remove(to_coalesce);
                 new_block = to_coalesce;
                 new_block->size = size << 1;
                 new_block->next = NULL;
@@ -131,9 +126,9 @@ void nu_bin_coalesce(int index, nu_free_cell* to_coalesce) {
             }
         }
         if(prev != NULL) {
-            if((void*)to_coalesce - size == prev) {
-                nu_remove(to_coalesce);
+            if((int64_t)prev + prev->size == (int64_t)to_coalesce) {
                 nu_remove(prev);
+                nu_remove(to_coalesce);
                 new_block = prev;
                 new_block->size = size << 1;
                 new_block->next = NULL;
@@ -196,9 +191,13 @@ void add_more_big_space() {
     for(int j = 0; j < 10; j++) {
         nu_free_cell* cell = make_cell();
         cell->size = 2048;
+        cell->next = NULL;
+        cell->prev = NULL;
         nu_bin_insert(NUM_BINS - 1, cell);
         cell = (void*)cell + 2048;
         cell->size = 2048;
+        cell->prev = NULL;
+        cell->next = NULL;
         nu_bin_insert(NUM_BINS - 1, cell);
     }
 }
@@ -331,9 +330,7 @@ ofree(void* addr)
             }
         }
     }
-    //printf("before coalesce\n");
     nu_bin_coalesce(index, cell);
-    //printf("after coalesce\n");
     pthread_mutex_unlock(&mutex);
 }
 
